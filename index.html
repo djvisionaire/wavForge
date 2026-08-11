@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Browser Multi-Track Studio - Track Arming & Empty Tracks</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --track-bg: #0b1120;
+      --accent: #6366f1;
+      --accent-hover: #4f46e5;
+      --danger: #ef4444;
+      --danger-hover: #dc2626;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+      --selection: rgba(245, 158, 11, 0.35);
+      --record-red: #f43f5e;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      padding: 1rem;
+      gap: 0.75rem;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    h1 { font-size: 1.25rem; font-weight: 700; color: #cbd5e1; }
+
+    .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.4rem 0.8rem;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: background 0.2s, opacity 0.2s;
+    }
+    .btn:hover:not(:disabled) { background: var(--accent-hover); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-danger { background: var(--danger); }
+    .btn-danger:hover:not(:disabled) { background: var(--danger-hover); }
+    .btn-active { background: #10b981 !important; }
+    .btn-warn { background: #f59e0b; }
+    .btn-warn:hover:not(:disabled) { background: #d97706; }
+    .btn-history { background: #475569; }
+    .btn-history:hover:not(:disabled) { background: #334155; }
+    .btn-rec { background: var(--record-red); }
+    .btn-rec.recording { animation: pulse 1s infinite alternate; background: #be123c; }
+    .btn-arm { background: #334155; color: #f8fafc; border: 1px solid var(--border); }
+    .btn-arm.armed { background: var(--record-red) !important; color: white; }
+
+    @keyframes pulse { 0% { opacity: 1; } 100% { opacity: 0.5; } }
+
+    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+
+    .toolbar {
+      background: var(--panel);
+      padding: 0.6rem 0.8rem;
+      border-radius: 0.5rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.8rem;
+      align-items: center;
+      border: 1px solid var(--border);
+    }
+
+    .control-group { display: flex; align-items: center; gap: 0.4rem; }
+    label { font-size: 0.75rem; color: var(--text-muted); }
+    input[type="range"] { accent-color: var(--accent); width: 65px; }
+    .val-tag { font-size: 0.7rem; color: var(--text-muted); min-width: 28px; }
+
+    .studio-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: var(--track-bg);
+      border-radius: 0.5rem;
+      border: 1px solid var(--border);
+      overflow: hidden;
+      position: relative;
+    }
+
+    #ruler-container {
+      height: 28px;
+      background: #060913;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+    }
+    .ruler-spacer { width: 340px; border-right: 1px solid var(--border); flex-shrink: 0; }
+    #ruler-canvas { flex: 1; display: block; }
+
+    #tracks-list {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .track-row {
+      display: flex;
+      height: 160px;
+      border-bottom: 1px solid var(--border);
+      background: #0d1527;
+    }
+
+    .track-controls {
+      width: 340px;
+      padding: 0.5rem;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      flex-shrink: 0;
+    }
+
+    .track-title {
+      font-size: 0.8rem;
+      font-weight: 600;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #e2e8f0;
+    }
+
+    .track-btn-row { display: flex; gap: 0.25rem; align-items: center; flex-wrap: wrap; }
+    .track-slider-row { display: flex; align-items: center; gap: 0.3rem; font-size: 0.68rem; }
+
+    .fx-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      background: #0f172a;
+      padding: 0.3rem;
+      border-radius: 0.25rem;
+      border: 1px solid var(--border);
+      margin-top: 0.1rem;
+    }
+
+    .fx-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.3rem;
+    }
+
+    .track-canvas-wrapper { flex: 1; position: relative; background: var(--track-bg); overflow: hidden; }
+    .track-canvas { width: 100%; height: 100%; display: block; }
+
+    #playhead {
+      position: absolute;
+      top: 0; bottom: 0;
+      width: 2px;
+      background: #ef4444;
+      pointer-events: none;
+      z-index: 10;
+      display: none;
+    }
+
+    .info-bar {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      display: flex;
+      justify-content: space-between;
+      padding: 0 0.25rem;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Web Audio Studio Pro <span style="font-size: 0.8rem; color: var(--accent);">(3-Band EQ & Convolution Reverb)</span></h1>
+    <div style="display: flex; gap: 0.5rem;">
+      <input type="file" id="track-input" accept="audio/*" multiple style="display: none;" />
+      <button class="btn" onclick="document.getElementById('track-input').click()">+ Add Track File(s)</button>
+      <button class="btn btn-warn" id="btn-add-empty">+ Add Empty Track</button>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <div class="control-group">
+      <button id="btn-play" class="btn" disabled>Play</button>
+      <button id="btn-pause" class="btn" disabled>Pause</button>
+      <button id="btn-stop" class="btn" disabled>Stop</button>
+      <button id="btn-record" class="btn btn-rec" title="Record Audio via Microphone">🔴 Rec</button>
+    </div>
+
+    <div class="control-group" style="border-left: 1px solid var(--border); padding-left: 0.6rem;">
+      <button id="btn-undo" class="btn btn-history btn-sm" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
+      <button id="btn-redo" class="btn btn-history btn-sm" disabled title="Redo (Ctrl+Y)">↷ Redo</button>
+    </div>
+
+    <div class="control-group">
+      <label for="master-gain">Master Vol:</label>
+      <input type="range" id="master-gain" min="0" max="2" step="0.05" value="1" />
+    </div>
+
+    <div class="control-group" style="border-left: 1px solid var(--border); padding-left: 0.6rem;">
+      <button id="btn-crop" class="btn btn-warn btn-sm" disabled title="Trim clip to retain selected region only">Trim Selection</button>
+      <button id="btn-delete" class="btn btn-danger btn-sm" disabled title="Delete selected audio region">Delete Region</button>
+      <button id="btn-clear-sel" class="btn btn-sm" disabled title="Clear selection highlight">Clear Selection</button>
+    </div>
+
+    <div class="control-group" style="margin-left: auto;">
+      <button id="btn-zoom-in" class="btn" disabled>+</button>
+      <button id="btn-zoom-out" class="btn" disabled>-</button>
+    </div>
+  </div>
+
+  <div class="studio-container">
+    <div id="ruler-container">
+      <div class="ruler-spacer"></div>
+      <canvas id="ruler-canvas"></canvas>
+    </div>
+
+    <div id="tracks-list">
+      <div id="playhead"></div>
+    </div>
+  </div>
+
+  <div class="info-bar">
+    <span id="time-display">Time: 0.00s / 0.00s</span>
+    <span id="selection-display">Add an empty track or arm a track with 'Rec' to record directly</span>
+  </div>
+
+  <script>
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const masterGainNode = audioCtx.createGain();
+    masterGainNode.connect(audioCtx.destination);
+
+    let impulseResponseBuffer = createImpulseResponse(audioCtx, 2.5, 2.0);
+
+    let tracks = [];
+    let selectedRegion = null;
+    let isPlaying = false;
+    let startTime = 0;
+    let startOffset = 0;
+    let zoomLevel = 1.0;
+    let animationFrameId = null;
+
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    let undoStack = [];
+    let redoStack = [];
+    const MAX_HISTORY = 30;
+
+    const trackInput = document.getElementById('track-input');
+    const btnAddEmpty = document.getElementById('btn-add-empty');
+    const tracksList = document.getElementById('tracks-list');
+    const playhead = document.getElementById('playhead');
+    const rulerCanvas = document.getElementById('ruler-canvas');
+    const rulerCtx = rulerCanvas.getContext('2d');
+
+    const btnPlay = document.getElementById('btn-play');
+    const btnPause = document.getElementById('btn-pause');
+    const btnStop = document.getElementById('btn-stop');
+    const btnRecord = document.getElementById('btn-record');
+    const btnUndo = document.getElementById('btn-undo');
+    const btnRedo = document.getElementById('btn-redo');
+    const btnCrop = document.getElementById('btn-crop');
+    const btnDelete = document.getElementById('btn-delete');
+    const btnClearSel = document.getElementById('btn-clear-sel');
+    const btnZoomIn = document.getElementById('btn-zoom-in');
+    const btnZoomOut = document.getElementById('btn-zoom-out');
+    const masterGainSlider = document.getElementById('master-gain');
+    const timeDisplay = document.getElementById('time-display');
+    const selectionDisplay = document.getElementById('selection-display');
+
+    masterGainSlider.addEventListener('input', (e) => {
+      masterGainNode.gain.value = e.target.value;
+    });
+
+    function createImpulseResponse(ctx, duration = 2.0, decay = 2.0) {
+      const sampleRate = ctx.sampleRate;
+      const length = sampleRate * duration;
+      const impulse = ctx.createBuffer(2, length, sampleRate);
+      const left = impulse.getChannelData(0);
+      const right = impulse.getChannelData(1);
+
+      for (let i = 0; i < length; i++) {
+        const n = length - i;
+        left[i] = (Math.random() * 2 - 1) * Math.pow(n / length, decay);
+        right[i] = (Math.random() * 2 - 1) * Math.pow(n / length, decay);
+      }
+      return impulse;
+    }
+
+    function createDistortionCurve(amount = 0) {
+      const k = amount;
+      const n_samples = 44100;
+      const curve = new Float32Array(n_samples);
+      const deg = Math.PI / 180;
+      for (let i = 0; i < n_samples; ++i) {
+        const x = (i * 2) / n_samples - 1;
+        curve[i] = k === 0 ? x : ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+      }
+      return curve;
+    }
+
+    function createTrackObject(name, audioBuffer = null, timeOffset = 0, existingId = null) {
+      const trackId = existingId || ('track_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4));
+
+      const lowEq = audioCtx.createBiquadFilter();
+      lowEq.type = 'lowshelf';
+      lowEq.frequency.value = 100;
+      lowEq.gain.value = 0;
+
+      const midEq = audioCtx.createBiquadFilter();
+      midEq.type = 'peaking';
+      midEq.frequency.value = 1000;
+      midEq.Q.value = 1.0;
+      midEq.gain.value = 0;
+
+      const highEq = audioCtx.createBiquadFilter();
+      highEq.type = 'highshelf';
+      highEq.frequency.value = 8000;
+      highEq.gain.value = 0;
+
+      const filterNode = audioCtx.createBiquadFilter();
+      filterNode.type = 'lowpass';
+      filterNode.frequency.value = 20000;
+
+      const distNode = audioCtx.createWaveShaper();
+      distNode.curve = createDistortionCurve(0);
+      distNode.oversample = '4x';
+
+      const convolverNode = audioCtx.createConvolver();
+      convolverNode.buffer = impulseResponseBuffer;
+      const reverbGainNode = audioCtx.createGain();
+      reverbGainNode.gain.value = 0;
+
+      const gainNode = audioCtx.createGain();
+      const pannerNode = audioCtx.createStereoPanner ? audioCtx.createStereoPanner() : null;
+
+      lowEq.connect(midEq);
+      midEq.connect(highEq);
+      highEq.connect(filterNode);
+      filterNode.connect(distNode);
+
+      distNode.connect(gainNode);
+      distNode.connect(convolverNode);
+      convolverNode.connect(reverbGainNode);
+      reverbGainNode.connect(gainNode);
+
+      if (pannerNode) {
+        gainNode.connect(pannerNode);
+        pannerNode.connect(masterGainNode);
+      } else {
+        gainNode.connect(masterGainNode);
+      }
+
+      return {
+        id: trackId,
+        name: name,
+        buffer: audioBuffer,
+        lowEq, midEq, highEq, filterNode, distNode, convolverNode, reverbGainNode, gainNode, pannerNode,
+        sourceNode: null,
+        volume: 1.0, pan: 0, muted: false, soloed: false, armed: false,
+        timeOffset: timeOffset,
+        eqLow: 0, eqMid: 0, eqHigh: 0,
+        fxCutoff: 20000, fxDistortion: 0, fxReverb: 0,
+        dom: {}
+      };
+    }
+
+    function renderTrackDOM(track) {
+      const row = document.createElement('div');
+      row.className = 'track-row';
+      row.id = track.id;
+
+      row.innerHTML = `
+        <div class="track-controls">
+          <div class="track-title" title="${track.name}">${track.name}</div>
+          <div class="track-btn-row">
+            <button class="btn btn-sm btn-arm ${track.armed ? 'armed' : ''}">● Rec</button>
+            <button class="btn btn-sm btn-mute ${track.muted ? 'btn-active' : ''}">Mute</button>
+            <button class="btn btn-sm btn-solo ${track.soloed ? 'btn-active' : ''}">Solo</button>
+            <button class="btn btn-sm btn-danger btn-del">Delete</button>
+          </div>
+          <div class="track-slider-row">
+            <label>Vol</label>
+            <input type="range" class="slider-vol" min="0" max="2" step="0.05" value="${track.volume}">
+            <label>Pan</label>
+            <input type="range" class="slider-pan" min="-1" max="1" step="0.1" value="${track.pan}">
+          </div>
+          <div class="track-slider-row">
+            <label>Offset</label>
+            <input type="range" class="slider-offset" min="0" max="30" step="0.1" value="${track.timeOffset}">
+            <span class="val-tag offset-val">${track.timeOffset.toFixed(1)}s</span>
+          </div>
+
+          <div class="fx-panel">
+            <div class="fx-grid">
+              <div class="track-slider-row" title="Low Shelf EQ (100 Hz)">
+                <label>Low</label>
+                <input type="range" class="slider-eq-low" min="-12" max="12" step="1" value="${track.eqLow}">
+              </div>
+              <div class="track-slider-row" title="Mid Peaking EQ (1 kHz)">
+                <label>Mid</label>
+                <input type="range" class="slider-eq-mid" min="-12" max="12" step="1" value="${track.eqMid}">
+              </div>
+              <div class="track-slider-row" title="High Shelf EQ (8 kHz)">
+                <label>High</label>
+                <input type="range" class="slider-eq-high" min="-12" max="12" step="1" value="${track.eqHigh}">
+              </div>
+            </div>
+
+            <div class="fx-grid">
+              <div class="track-slider-row" title="Lowpass Cutoff">
+                <label>LPF</label>
+                <input type="range" class="slider-lpf" min="200" max="20000" step="100" value="${track.fxCutoff}">
+              </div>
+              <div class="track-slider-row" title="Reverb Send Gain">
+                <label>Reverb</label>
+                <input type="range" class="slider-reverb" min="0" max="1" step="0.05" value="${track.fxReverb}">
+              </div>
+              <div class="track-slider-row" title="Distortion Drive">
+                <label>Drive</label>
+                <input type="range" class="slider-dist" min="0" max="50" step="1" value="${track.fxDistortion}">
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="track-canvas-wrapper">
+          <canvas class="track-canvas"></canvas>
+        </div>
+      `;
+
+      tracksList.appendChild(row);
+
+      const canvas = row.querySelector('.track-canvas');
+      track.dom.canvas = canvas;
+      track.dom.ctx = canvas.getContext('2d');
+      track.dom.offsetSlider = row.querySelector('.slider-offset');
+      track.dom.offsetVal = row.querySelector('.offset-val');
+
+      setupCanvasInteractions(track, canvas);
+
+      row.querySelector('.btn-arm').addEventListener('click', (e) => {
+        track.armed = !track.armed;
+        e.target.classList.toggle('armed', track.armed);
+      });
+
+      row.querySelector('.btn-mute').addEventListener('click', (e) => {
+        track.muted = !track.muted;
+        e.target.classList.toggle('btn-active', track.muted);
+        updateTrackGains();
+      });
+
+      row.querySelector('.btn-solo').addEventListener('click', (e) => {
+        track.soloed = !track.soloed;
+        e.target.classList.toggle('btn-active', track.soloed);
+        updateTrackGains();
+      });
+
+      row.querySelector('.btn-del').addEventListener('click', () => {
+        saveHistoryState();
+        removeTrack(track.id);
+      });
+
+      row.querySelector('.slider-vol').addEventListener('input', (e) => {
+        track.volume = parseFloat(e.target.value);
+        updateTrackGains();
+      });
+
+      row.querySelector('.slider-pan').addEventListener('input', (e) => {
+        track.pan = parseFloat(e.target.value);
+        if (track.pannerNode) track.pannerNode.pan.value = track.pan;
+      });
+
+      row.querySelector('.slider-eq-low').addEventListener('input', (e) => {
+        track.eqLow = parseFloat(e.target.value);
+        track.lowEq.gain.value = track.eqLow;
+      });
+
+      row.querySelector('.slider-eq-mid').addEventListener('input', (e) => {
+        track.eqMid = parseFloat(e.target.value);
+        track.midEq.gain.value = track.eqMid;
+      });
+
+      row.querySelector('.slider-eq-high').addEventListener('input', (e) => {
+        track.eqHigh = parseFloat(e.target.value);
+        track.highEq.gain.value = track.eqHigh;
+      });
+
+      row.querySelector('.slider-lpf').addEventListener('input', (e) => {
+        track.fxCutoff = parseFloat(e.target.value);
+        track.filterNode.frequency.value = track.fxCutoff;
+      });
+
+      row.querySelector('.slider-reverb').addEventListener('input', (e) => {
+        track.fxReverb = parseFloat(e.target.value);
+        track.reverbGainNode.gain.value = track.fxReverb;
+      });
+
+      row.querySelector('.slider-dist').addEventListener('input', (e) => {
+        track.fxDistortion = parseFloat(e.target.value);
+        track.distNode.curve = createDistortionCurve(track.fxDistortion);
+      });
+
+      track.dom.offsetSlider.addEventListener('change', () => saveHistoryState());
+      track.dom.offsetSlider.addEventListener('input', (e) => {
+        track.timeOffset = parseFloat(e.target.value);
+        track.dom.offsetVal.textContent = track.timeOffset.toFixed(1) + 's';
+        drawTrackWaveform(track);
+        drawRuler();
+        if (isPlaying) play(startOffset);
+      });
+    }
+
+    btnAddEmpty.addEventListener('click', () => {
+      saveHistoryState();
+      const emptyTrack = createTrackObject(`Track ${tracks.length + 1} (Empty)`, null);
+      emptyTrack.armed = true; // Auto-arm newly created empty tracks
+      tracks.push(emptyTrack);
+      renderTrackDOM(emptyTrack);
+      enableMasterControls();
+      drawRuler();
+      redrawAllWaveforms();
+    });
+
+    function setupCanvasInteractions(track, canvas) {
+      let isSelecting = false;
+
+      const getTimelineSecFromX = (x) => {
+        const w = canvas.width;
+        const maxDuration = getMaxTimelineDuration() || 1;
+        const visibleDuration = maxDuration / zoomLevel;
+        return (x / w) * visibleDuration;
+      };
+
+      canvas.addEventListener('mousedown', (e) => {
+        if (!track.buffer) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const clickSec = getTimelineSecFromX(x);
+        isSelecting = true;
+
+        selectedRegion = { trackId: track.id, startSec: clickSec, endSec: clickSec };
+        updateEditControls();
+        updateSelectionDisplay();
+        redrawAllWaveforms();
+      });
+
+      window.addEventListener('mousemove', (e) => {
+        if (!isSelecting || !selectedRegion || !track.buffer) return;
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        selectedRegion.endSec = getTimelineSecFromX(x);
+        updateSelectionDisplay();
+        redrawAllWaveforms();
+      });
+
+      window.addEventListener('mouseup', () => { isSelecting = false; });
+    }
+
+    function clearSelection() {
+      selectedRegion = null;
+      updateEditControls();
+      updateSelectionDisplay();
+      redrawAllWaveforms();
+    }
+
+    function updateSelectionDisplay() {
+      if (!selectedRegion) {
+        selectionDisplay.textContent = 'Add an empty track or arm a track with \'Rec\' to record directly';
+        return;
+      }
+      const s = Math.min(selectedRegion.startSec, selectedRegion.endSec);
+      const e = Math.max(selectedRegion.startSec, selectedRegion.endSec);
+      selectionDisplay.textContent = `Selection: ${s.toFixed(2)}s - ${e.toFixed(2)}s (Duration: ${(e - s).toFixed(2)}s)`;
+    }
+
+    function updateEditControls() {
+      const hasSel = selectedRegion && Math.abs(selectedRegion.startSec - selectedRegion.endSec) > 0.05;
+      btnCrop.disabled = !hasSel;
+      btnDelete.disabled = !hasSel;
+      btnClearSel.disabled = !hasSel;
+    }
+
+    btnCrop.addEventListener('click', () => {
+      if (!selectedRegion) return;
+      const track = tracks.find(t => t.id === selectedRegion.trackId);
+      if (!track || !track.buffer) return;
+
+      const s = Math.min(selectedRegion.startSec, selectedRegion.endSec);
+      const e = Math.max(selectedRegion.startSec, selectedRegion.endSec);
+
+      const relStart = Math.max(0, s - track.timeOffset);
+      const relEnd = Math.min(track.buffer.duration, e - track.timeOffset);
+
+      if (relEnd <= relStart) return;
+
+      saveHistoryState();
+      track.buffer = sliceAudioBuffer(track.buffer, relStart, relEnd);
+      track.timeOffset = track.timeOffset + relStart;
+
+      track.dom.offsetSlider.value = track.timeOffset;
+      track.dom.offsetVal.textContent = track.timeOffset.toFixed(1) + 's';
+
+      clearSelection();
+      drawRuler();
+      if (isPlaying) play(startOffset);
+    });
+
+    btnDelete.addEventListener('click', () => {
+      if (!selectedRegion) return;
+      const track = tracks.find(t => t.id === selectedRegion.trackId);
+      if (!track || !track.buffer) return;
+
+      const s = Math.min(selectedRegion.startSec, selectedRegion.endSec);
+      const e = Math.max(selectedRegion.startSec, selectedRegion.endSec);
+
+      const relStart = Math.max(0, s - track.timeOffset);
+      const relEnd = Math.min(track.buffer.duration, e - track.timeOffset);
+
+      if (relEnd <= relStart) return;
+
+      saveHistoryState();
+      const leftChunk = sliceAudioBuffer(track.buffer, 0, relStart);
+      const rightChunk = sliceAudioBuffer(track.buffer, relEnd, track.buffer.duration);
+      track.buffer = joinAudioBuffers(leftChunk, rightChunk);
+
+      clearSelection();
+      drawRuler();
+      if (isPlaying) play(startOffset);
+    });
+
+    btnClearSel.addEventListener('click', clearSelection);
+
+    function sliceAudioBuffer(buffer, startSec, endSec) {
+      const rate = buffer.sampleRate;
+      const startFrame = Math.floor(startSec * rate);
+      const endFrame = Math.floor(endSec * rate);
+      const frameCount = Math.max(1, endFrame - startFrame);
+
+      const slicedBuffer = audioCtx.createBuffer(buffer.numberOfChannels, frameCount, rate);
+      for (let c = 0; c < buffer.numberOfChannels; c++) {
+        const chanData = buffer.getChannelData(c);
+        const slicedData = slicedBuffer.getChannelData(c);
+        for (let i = 0; i < frameCount; i++) {
+          slicedData[i] = chanData[startFrame + i] || 0;
+        }
+      }
+      return slicedBuffer;
+    }
+
+    function joinAudioBuffers(bufA, bufB) {
+      const rate = bufA.sampleRate;
+      const totalFrames = bufA.length + bufB.length;
+      const joinedBuffer = audioCtx.createBuffer(bufA.numberOfChannels, totalFrames, rate);
+
+      for (let c = 0; c < bufA.numberOfChannels; c++) {
+        const dataA = bufA.getChannelData(c);
+        const dataB = bufB.getChannelData(c);
+        const dest = joinedBuffer.getChannelData(c);
+        dest.set(dataA, 0);
+        dest.set(dataB, bufA.length);
+      }
+      return joinedBuffer;
+    }
+
+    function play(offset = startOffset) {
+      if (tracks.length === 0) return;
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      if (isPlaying) stopSources();
+
+      const now = audioCtx.currentTime;
+      startTime = now - offset;
+
+      tracks.forEach(track => {
+        if (!track.buffer) return;
+        const trackStartPoint = track.timeOffset;
+        const trackEndPoint = track.timeOffset + track.buffer.duration;
+
+        if (offset < trackEndPoint) {
+          const source = audioCtx.createBufferSource();
+          source.buffer = track.buffer;
+
+          let whenToStart = now;
+          let offsetInBuffer = 0;
+
+          if (offset < trackStartPoint) {
+            whenToStart = now + (trackStartPoint - offset);
+            offsetInBuffer = 0;
+          } else {
+            whenToStart = now;
+            offsetInBuffer = offset - trackStartPoint;
+          }
+
+          source.connect(track.lowEq);
+          source.start(whenToStart, offsetInBuffer);
+          track.sourceNode = source;
+        }
+      });
+
+      isPlaying = true;
+      playhead.style.display = 'block';
+      updateTrackGains();
+      requestAnimationFrame(renderPlaybackLoop);
+    }
+
+    function pause() {
+      if (!isPlaying) return;
+      startOffset = audioCtx.currentTime - startTime;
+      stopSources();
+      isPlaying = false;
+    }
+
+    function stop() {
+      stopSources();
+      isPlaying = false;
+      startOffset = 0;
+      playhead.style.display = 'none';
+      updateTimeDisplay(0);
+    }
+
+    function stopSources() {
+      tracks.forEach(track => {
+        if (track.sourceNode) {
+          try { track.sourceNode.stop(); } catch(e) {}
+          track.sourceNode = null;
+        }
+      });
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    }
+
+    function renderPlaybackLoop() {
+      if (!isPlaying) return;
+      const currentPos = audioCtx.currentTime - startTime;
+      const maxDuration = getMaxTimelineDuration();
+
+      if (currentPos >= maxDuration) { stop(); return; }
+
+      const canvasWidth = rulerCanvas.width;
+      const visibleDuration = maxDuration / zoomLevel || 1;
+      const playheadX = (currentPos / visibleDuration) * canvasWidth;
+
+      playhead.style.left = (340 + playheadX) + 'px';
+      updateTimeDisplay(currentPos);
+
+      animationFrameId = requestAnimationFrame(renderPlaybackLoop);
+    }
+
+    function updateTimeDisplay(currentPos) {
+      const maxDuration = getMaxTimelineDuration();
+      timeDisplay.textContent = `Time: ${currentPos.toFixed(2)}s / ${maxDuration.toFixed(2)}s`;
+    }
+
+    function redrawAllWaveforms() { tracks.forEach(track => drawTrackWaveform(track)); }
+
+    function drawRuler() {
+      const container = rulerCanvas.parentElement;
+      rulerCanvas.width = container.clientWidth - 340;
+      rulerCanvas.height = container.clientHeight;
+
+      const w = rulerCanvas.width;
+      const h = rulerCanvas.height;
+      rulerCtx.fillStyle = '#060913';
+      rulerCtx.fillRect(0, 0, w, h);
+
+      const maxDuration = getMaxTimelineDuration() || 10;
+      const visibleDuration = maxDuration / zoomLevel;
+
+      rulerCtx.fillStyle = '#64748b';
+      rulerCtx.font = '10px system-ui';
+      const step = w / 10;
+
+      for (let i = 0; i <= 10; i++) {
+        const x = i * step;
+        const timeSec = (i * (visibleDuration / 10)).toFixed(1);
+        rulerCtx.fillRect(x, h - 8, 1, 8);
+        rulerCtx.fillText(`${timeSec}s`, x + 3, h - 10);
+      }
+    }
+
+    function drawTrackWaveform(track) {
+      const canvas = track.dom.canvas;
+      const ctx = track.dom.ctx;
+      const wrapper = canvas.parentElement;
+
+      canvas.width = wrapper.clientWidth;
+      canvas.height = wrapper.clientHeight;
+
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.fillStyle = '#0b1120';
+      ctx.fillRect(0, 0, w, h);
+
+      const maxDuration = getMaxTimelineDuration() || 10;
+      const visibleDuration = maxDuration / zoomLevel;
+
+      if (!track.buffer) {
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(0, 0, w, h);
+        ctx.fillStyle = '#64748b';
+        ctx.font = '12px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(track.armed ? '⏺ Armed for Recording...' : 'Empty Track', w / 2, h / 2);
+        return;
+      }
+
+      const startX = (track.timeOffset / visibleDuration) * w;
+      const trackWidth = (track.buffer.duration / visibleDuration) * w;
+
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(startX, 0, trackWidth, h);
+
+      const data = track.buffer.getChannelData(0);
+      const step = Math.ceil(data.length / trackWidth);
+      const amp = h / 2;
+
+      ctx.fillStyle = '#38bdf8';
+      for (let i = 0; i < trackWidth; i++) {
+        let min = 1.0, max = -1.0;
+        for (let j = 0; j < step; j++) {
+          const index = Math.floor(i * step + j);
+          if (index < data.length) {
+            const datum = data[index];
+            if (datum < min) min = datum;
+            if (datum > max) max = datum;
+          }
+        }
+        ctx.fillRect(startX + i, (1 + min) * amp, 1, Math.max(1, (max - min) * amp));
+      }
+
+      if (selectedRegion && selectedRegion.trackId === track.id) {
+        const selStartSec = Math.min(selectedRegion.startSec, selectedRegion.endSec);
+        const selEndSec = Math.max(selectedRegion.startSec, selectedRegion.endSec);
+
+        const selX1 = (selStartSec / visibleDuration) * w;
+        const selX2 = (selEndSec / visibleDuration) * w;
+        const selW = selX2 - selX1;
+
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.35)';
+        ctx.fillRect(selX1, 0, selW, h);
+
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(selX1, 0, selW, h);
+      }
+    }
+
+    function cloneAudioBuffer(originalBuffer) {
+      if (!originalBuffer) return null;
+      const cloned = audioCtx.createBuffer(originalBuffer.numberOfChannels, originalBuffer.length, originalBuffer.sampleRate);
+      for (let c = 0; c < originalBuffer.numberOfChannels; c++) {
+        cloned.getChannelData(c).set(originalBuffer.getChannelData(c));
+      }
+      return cloned;
+    }
+
+    function captureState() {
+      return tracks.map(t => ({
+        id: t.id, name: t.name, buffer: cloneAudioBuffer(t.buffer),
+        volume: t.volume, pan: t.pan, muted: t.muted, soloed: t.soloed, armed: t.armed, timeOffset: t.timeOffset,
+        eqLow: t.eqLow, eqMid: t.eqMid, eqHigh: t.eqHigh, fxCutoff: t.fxCutoff, fxReverb: t.fxReverb, fxDistortion: t.fxDistortion
+      }));
+    }
+
+    function saveHistoryState() {
+      undoStack.push(captureState());
+      if (undoStack.length > MAX_HISTORY) undoStack.shift();
+      redoStack = [];
+      updateHistoryButtons();
+    }
+
+    function restoreState(snapshot) {
+      if (isPlaying) stopSources();
+      tracks.forEach(t => { const el = document.getElementById(t.id); if (el) el.remove(); });
+      tracks = []; selectedRegion = null;
+
+      snapshot.forEach(savedTrack => {
+        const track = createTrackObject(savedTrack.name, savedTrack.buffer, savedTrack.timeOffset, savedTrack.id);
+        track.volume = savedTrack.volume; track.pan = savedTrack.pan;
+        track.muted = savedTrack.muted; track.soloed = savedTrack.soloed; track.armed = savedTrack.armed;
+        track.eqLow = savedTrack.eqLow; track.eqMid = savedTrack.eqMid; track.eqHigh = savedTrack.eqHigh;
+        track.fxCutoff = savedTrack.fxCutoff; track.fxReverb = savedTrack.fxReverb; track.fxDistortion = savedTrack.fxDistortion;
+        renderTrackDOM(track);
+        tracks.push(track);
+      });
+
+      updateTrackGains(); updateEditControls(); updateSelectionDisplay();
+      drawRuler(); redrawAllWaveforms(); updateHistoryButtons();
+      if (tracks.length > 0) enableMasterControls(); else disableMasterControls();
+      if (isPlaying) play(startOffset);
+    }
+
+    function undo() {
+      if (undoStack.length === 0) return;
+      redoStack.push(captureState());
+      restoreState(undoStack.pop());
+    }
+
+    function redo() {
+      if (redoStack.length === 0) return;
+      undoStack.push(captureState());
+      restoreState(redoStack.pop());
+    }
+
+    function updateHistoryButtons() {
+      btnUndo.disabled = undoStack.length === 0;
+      btnRedo.disabled = redoStack.length === 0;
+    }
+
+    btnUndo.addEventListener('click', undo);
+    btnRedo.addEventListener('click', redo);
+
+    function updateTrackGains() {
+      const anySoloed = tracks.some(t => t.soloed);
+      tracks.forEach(t => {
+        if (t.muted) t.gainNode.gain.value = 0;
+        else if (anySoloed) t.gainNode.gain.value = t.soloed ? t.volume : 0;
+        else t.gainNode.gain.value = t.volume;
+      });
+    }
+
+    function getMaxTimelineDuration() {
+      if (tracks.length === 0) return 10;
+      const maxTrackDur = Math.max(...tracks.map(t => t.timeOffset + (t.buffer ? t.buffer.duration : 0)));
+      return maxTrackDur || 10;
+    }
+
+    function removeTrack(trackId) {
+      const index = tracks.findIndex(t => t.id === trackId);
+      if (index !== -1) {
+        if (tracks[index].sourceNode) {
+          try { tracks[index].sourceNode.stop(); } catch(e) {}
+        }
+        document.getElementById(trackId).remove();
+        tracks.splice(index, 1);
+        if (tracks.length === 0) disableMasterControls();
+        drawRuler();
+        redrawAllWaveforms();
+        updateTimeDisplay(startOffset);
+      }
+    }
+
+    function enableMasterControls() {
+      btnPlay.disabled = false;
+      btnPause.disabled = false;
+      btnStop.disabled = false;
+      btnZoomIn.disabled = false;
+      btnZoomOut.disabled = false;
+    }
+
+    function disableMasterControls() {
+      btnPlay.disabled = true;
+      btnPause.disabled = true;
+      btnStop.disabled = true;
+      btnZoomIn.disabled = true;
+      btnZoomOut.disabled = true;
+      stop();
+    }
+
+    trackInput.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files);
+      if (!files.length) return;
+
+      saveHistoryState();
+      for (const file of files) {
+        try {
+          const arrayBuffer = await file.arrayBuffer();
+          const decodedData = await audioCtx.decodeAudioData(arrayBuffer);
+          const track = createTrackObject(file.name, decodedData);
+          tracks.push(track);
+          renderTrackDOM(track);
+        } catch (err) {
+          console.error("Error decoding audio file:", err);
+        }
+      }
+
+      enableMasterControls();
+      drawRuler();
+      redrawAllWaveforms();
+      updateTimeDisplay(0);
+      trackInput.value = '';
+    });
+
+    btnPlay.addEventListener('click', () => play());
+    btnPause.addEventListener('click', pause);
+    btnStop.addEventListener('click', stop);
+
+    btnRecord.addEventListener('click', async () => {
+      if (!isRecording) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+
+          mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            const blob = new Blob(audioChunks, { type: 'audio/webm' });
+            const arrayBuffer = await blob.arrayBuffer();
+            const decodedData = await audioCtx.decodeAudioData(arrayBuffer);
+
+            saveHistoryState();
+
+            // Find armed empty or existing track
+            const armedTrack = tracks.find(t => t.armed);
+            if (armedTrack) {
+              armedTrack.buffer = decodedData;
+              armedTrack.name = armedTrack.name.replace('(Empty)', '(Recorded)');
+              const titleEl = document.querySelector(`#${armedTrack.id} .track-title`);
+              if (titleEl) titleEl.textContent = armedTrack.name;
+              armedTrack.armed = false;
+              const armBtn = document.querySelector(`#${armedTrack.id} .btn-arm`);
+              if (armBtn) armBtn.classList.remove('armed');
+            } else {
+              const recordTrack = createTrackObject(`Mic Recording ${tracks.length + 1}`, decodedData);
+              tracks.push(recordTrack);
+              renderTrackDOM(recordTrack);
+            }
+
+            enableMasterControls();
+            drawRuler();
+            redrawAllWaveforms();
+            updateTimeDisplay(0);
+          };
+
+          mediaRecorder.start();
+          isRecording = true;
+          btnRecord.classList.add('recording');
+          btnRecord.textContent = '⏹ Stop Rec';
+        } catch (err) {
+          alert('Microphone access denied or unassigned. Ensure browser permissions allow microphone input.');
+        }
+      } else {
+        mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        isRecording = false;
+        btnRecord.classList.remove('recording');
+        btnRecord.textContent = '🔴 Rec';
+      }
+    });
+
+    btnZoomIn.addEventListener('click', () => {
+      zoomLevel = Math.min(zoomLevel * 1.25, 10);
+      drawRuler();
+      redrawAllWaveforms();
+    });
+
+    btnZoomOut.addEventListener('click', () => {
+      zoomLevel = Math.max(zoomLevel / 1.25, 1);
+      drawRuler();
+      redrawAllWaveforms();
+    });
+
+    window.addEventListener('resize', () => {
+      drawRuler();
+      redrawAllWaveforms();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z' || e.key === 'Z') {
+          e.preventDefault();
+          if (e.shiftKey) redo(); else undo();
+        } else if (e.key === 'y' || e.key === 'Y') {
+          e.preventDefault();
+          redo();
+        }
+      }
+    });
+  </script>
+</body>
+</html>
